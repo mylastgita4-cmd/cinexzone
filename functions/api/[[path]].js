@@ -1,42 +1,68 @@
 
-const API_BASE_URL = "https://cinewave.galishadilshan045.workers.dev";
+import worker from "../../worker.js";
+
+const JSON_HEADERS = {
+  "Content-Type": "application/json; charset=utf-8",
+  "Cache-Control": "no-store",
+};
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: JSON_HEADERS,
+  });
+}
 
 export async function onRequest(context) {
-  const { request, params } = context;
-  const incomingUrl = new URL(request.url);
+  const { request, env } = context;
+  const url = new URL(request.url);
+  const path = url.pathname.replace(/\/+$/, "") || "/";
 
-  // Forward the API path and query parameters to the old Worker
-  const pathParts = params.path || [];
-  const apiPath = Array.isArray(pathParts)
-    ? pathParts.join("/")
-    : String(pathParts);
+  // Allow only the API endpoints used by the website.
+  const allowedRoutes = new Set([
+    "/api/health",
+    "/api/home",
+    "/api/latest",
+    "/api/movies",
+    "/api/trailer",
+    "/api/tv/seasons",
+    "/api/tv/season",
+  ]);
 
-  const targetUrl = new URL(
-    `${API_BASE_URL}/api/${apiPath}`
-  );
+  // Do not expose torrent-search or torrent-file download handlers.
+  if (
+    path === "/api/torrents" ||
+    path === "/api/torrent-file"
+  ) {
+    return json(
+      {
+        error:
+          "Torrent endpoints are not enabled. Use authorized viewing and download sources.",
+      },
+      403
+    );
+  }
 
-  targetUrl.search = incomingUrl.search;
+  if (!allowedRoutes.has(path)) {
+    return json({ error: "API route not found" }, 404);
+  }
 
-  const headers = new Headers(request.headers);
-  headers.delete("host");
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return json({ error: "Method not allowed" }, 405);
+  }
 
-  const proxyRequest = new Request(targetUrl.toString(), {
-    method: request.method,
-    headers,
-    body: ["GET", "HEAD"].includes(request.method)
-      ? undefined
-      : request.body,
-    redirect: "follow"
-  });
+  try {
+    // Reuse the existing Worker API logic without changing worker.js.
+    return await worker.fetch(request, env, context);
+  } catch (error) {
+    console.error("CineX Zone API error:", error);
 
-  const response = await fetch(proxyRequest);
-  const responseHeaders = new Headers(response.headers);
-
-  responseHeaders.set("Access-Control-Allow-Origin", "*");
-
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: responseHeaders
-  });
+    return json(
+      {
+        error: "API request failed",
+        message: "Please try again later.",
+      },
+      500
+    );
+  }
 }
