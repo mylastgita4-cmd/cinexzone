@@ -315,7 +315,7 @@ function playTrailer(){
 
 // ---------- Torrent sources ----------
 let tvToken=0,seasonToken=0,seasonState=null;
-const pad2=n=>String(n).padStart(2,'0');
+const pad2=n=>String(Number(n)||0).padStart(2,'0');
 const spinnerHtml=t=>'<p class="status"><span class="spinner"></span>'+esc(t)+'</p>';
 const isHash=h=>/^[a-fA-F0-9]{40}$/.test(h)||/^[A-Za-z2-7]{32}$/.test(h);
 const qRankOf=t=>(typeof t.qRank==='number'?t.qRank:999);
@@ -340,7 +340,7 @@ function torrentRowHtml(t,flat){
   const dl=safeUrl(t.torrentUrl),mag=safeUrl(t.magnet),h=String(t.infoHash||'').trim();
   const direct=dl&&!/^magnet:/i.test(dl)?dl:'';
   const canFile=isHash(h)||!!direct;
-  return '<div class="tRow" data-q="'+qRankOf(t)+'"><div class="tInfo"><span class="badge qBadge">'+esc(t.qLabel||t.resolution||'?')+'</span> <b>'+esc(t.size||'size n/a')+'</b> · ↑ '+(t.seeds??0)+' ↓ '+(t.peers??0)+(t.source?' · '+esc(t.source):'')+'<div class="tName">'+esc(t.title)+'</div></div>'
+  return '<div class="tRow" data-q="'+esc(Number(qRankOf(t))||0)+'"><div class="tInfo"><span class="badge qBadge">'+esc(t.qLabel||t.resolution||'?')+'</span> <b>'+esc(t.size||'size n/a')+'</b> · ↑ '+esc(Number(t.seeds)||0)+' ↓ '+esc(Number(t.peers)||0)+(t.source?' · '+esc(t.source):'')+'<div class="tName">'+esc(t.title)+'</div></div>'
     +'<div class="tBtns">'
     +(mag?'<a class="mini mag" href="'+esc(mag)+'" rel="noopener noreferrer">'+(flat?'Open magnet link':ico('download')+'Download')+'</a>':'')
     +(flat&&direct?'<a class="mini file" href="'+esc(direct)+'" target="_blank" rel="noopener noreferrer">Open source file</a>':'')
@@ -389,7 +389,7 @@ function qualityGroups(ts){
 function chipsHtml(groups,active){
   const total=groups.reduce((n,g)=>n+g.items.length,0);
   return '<div class="qChips"><button type="button" class="qChip'+(active==='all'?' active':'')+'" data-qf="all">All <small>'+total+'</small></button>'
-    +groups.map(g=>'<button type="button" class="qChip'+(String(g.rank)===active?' active':'')+'" data-qf="'+g.rank+'">'+esc(g.label)+' <small>'+g.items.length+'</small></button>').join('')+'</div>';
+    +groups.map(g=>'<button type="button" class="qChip'+(String(g.rank)===active?' active':'')+'" data-qf="'+esc(Number(g.rank)||0)+'">'+esc(g.label)+' <small>'+esc(g.items.length)+'</small></button>').join('')+'</div>';
 }
 function applyQuality(scope,q){
   scope.dataset.q=q;
@@ -427,7 +427,7 @@ function renderTorrents(ts,el,notice){
   if(!ts.length){el.innerHTML=note+'<div class="torrentEmpty">No matching sources returned. Use only content you have permission to download or share.</div>'+retryButtonHtml();return}
   const groups=qualityGroups(ts);
   el.innerHTML=note+'<p class="note">All available qualities, lowest to highest. Tap a quality to show only that one.</p>'+chipsHtml(groups,'all')
-    +groups.map(g=>'<div class="qGroup" data-q="'+g.rank+'"><h4 class="qHead">'+esc(g.label)+' <small>'+g.items.length+' release'+(g.items.length===1?'':'s')+'</small></h4>'+g.items.slice().sort(byQuality).map(t=>torrentRowHtml(t,true)).join('')+'</div>').join('');
+    +groups.map(g=>'<div class="qGroup" data-q="'+esc(Number(g.rank)||0)+'"><h4 class="qHead">'+esc(g.label)+' <small>'+esc(g.items.length)+' release'+(g.items.length===1?'':'s')+'</small></h4>'+g.items.slice().sort(byQuality).map(t=>torrentRowHtml(t,true)).join('')+'</div>').join('');
 }
 
 // ----- TV: season buttons -----
@@ -449,7 +449,7 @@ async function openTvSeasons(m){
 function renderSeasonPicker(m,seasons){
   const list=$('torrentList');
   list.innerHTML='<p class="note">Choose a season to see every episode with its date, size and download links.</p>'
-    +'<div class="seasonBtns">'+seasons.map(s=>'<button type="button" class="seasonBtn" data-s="'+s.season+'">Season '+s.season+'<small>'+s.episodes+' episode'+(s.episodes===1?'':'s')+(s.year?' · '+esc(s.year):'')+'</small></button>').join('')+'</div>'
+    +'<div class="seasonBtns">'+seasons.map(s=>'<button type="button" class="seasonBtn" data-s="'+esc(Number(s.season)||0)+'">Season '+esc(Number(s.season)||0)+'<small>'+esc(Number(s.episodes)||0)+' episode'+(Number(s.episodes)===1?'':'s')+(s.year?' · '+esc(s.year):'')+'</small></button>').join('')+'</div>'
     +'<div id="seasonView" data-qscope="1"></div>'
     +'<button type="button" class="btn download" id="generalBtn">'+ico('search')+'General search (full-series packs)</button>';
   list.querySelectorAll('.seasonBtn').forEach(b=>b.onclick=()=>loadSeason(m,Number(b.dataset.s)));
@@ -458,7 +458,7 @@ function renderSeasonPicker(m,seasons){
     list.querySelectorAll('.seasonBtn').forEach(b=>b.classList.remove('active'));
     fillFlat($('seasonView'),m);
   };
-  if(seasons.length===1)loadSeason(m,seasons[0].season);
+  if(seasons.length===1)loadSeason(m,Number(seasons[0].season)||0);
 }
 
 // ----- TV: one season = episodes in order, each with its torrents -----
@@ -481,10 +481,11 @@ function refreshSeasonChips(st){
 function fillEpisode(st,epNo){
   const body=$('ep-'+epNo);if(!body)return;
   const ts=st.byEp[epNo]||[];
-  body.innerHTML=ts.length?'<div class="noQ" hidden>No release in the selected quality.</div>'+rowsHtml(ts):'<div class="missing">No torrent found yet.</div><button type="button" class="mini file" data-find="'+epNo+'">'+ico('search')+'Search this episode</button>';
+  body.innerHTML=ts.length?'<div class="noQ" hidden>No release in the selected quality.</div>'+rowsHtml(ts):'<div class="missing">No torrent found yet.</div><button type="button" class="mini file" data-find="'+esc(Number(epNo)||0)+'">'+ico('search')+'Search this episode</button>';
   refreshSeasonChips(st);
 }
 async function loadSeason(m,n){
+  n=Number(n)||0;
   const view=$('seasonView'),token=++seasonToken;
   document.querySelectorAll('.seasonBtn').forEach(b=>b.classList.toggle('active',Number(b.dataset.s)===n));
   view.dataset.q='all';
@@ -500,7 +501,7 @@ async function loadSeason(m,n){
   const st=seasonState={token,movie:m,season:n,episodes,byEp:{},packs:[]};
   // episode list first (fast), torrent results fill in afterwards
   view.innerHTML='<div class="seasonHead"><h4>Season '+n+' · '+episodes.length+' episode'+(episodes.length===1?'':'s')+'</h4><button type="button" class="mini red" data-allmissing="1" disabled>Searching…</button></div><div id="seasonChips"></div><div id="packsBox"></div>'
-    +episodes.map(ep=>'<div class="epItem"><div class="epHead"><span class="epNo">E'+pad2(ep.episode)+'</span><span class="epName">'+esc(ep.name)+'</span><span class="epDate">'+esc(ep.airDate||'')+(ep.runtime?' · '+ep.runtime+' min':'')+'</span></div><div class="epBody" id="ep-'+ep.episode+'">'+spinnerHtml('Searching torrents…')+'</div></div>').join('');
+    +episodes.map(ep=>'<div class="epItem"><div class="epHead"><span class="epNo">E'+pad2(ep.episode)+'</span><span class="epName">'+esc(ep.name)+'</span><span class="epDate">'+esc(ep.airDate||'')+(ep.runtime?' · '+esc(ep.runtime)+' min':'')+'</span></div><div class="epBody" id="ep-'+esc(Number(ep.episode)||0)+'">'+spinnerHtml('Searching torrents…')+'</div></div>').join('');
   const res=await torP;
   if(token!==seasonToken)return;
   const data=res.ok?res.v:{torrents:[],providerError:res.e.message};
