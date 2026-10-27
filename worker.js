@@ -668,12 +668,12 @@ async function handleTvSeasons(env, cfg, url, cors) {
       .map(s => {
         // The running season lists unaired episodes too; count only aired ones.
         const aired = next && next.season_number === s.season_number
-          ? Math.max(0, (next.episode_number || 1) - 1)
-          : (s.episode_count || 0);
+          ? Math.max(0, (Number(next.episode_number) || 1) - 1)
+          : (Number(s.episode_count) || 0);
 
         return {
-          season: s.season_number,
-          name: s.name || 'Season ' + s.season_number,
+          season: Number(s.season_number) || 0,
+          name: s.name || 'Season ' + (Number(s.season_number) || 0),
           episodes: aired,
           airDate: s.air_date,
           year: String(s.air_date).slice(0, 4),
@@ -721,11 +721,12 @@ async function handleTvEpisodes(env, cfg, url, cors) {
     const episodes = (data.episodes || [])
       .filter(e => e.air_date && e.air_date <= today)
       .map(e => ({
-        episode: e.episode_number,
-        name: e.name || 'Episode ' + e.episode_number,
-        airDate: e.air_date,
-        runtime: e.runtime || null,
+        episode: Number(e.episode_number) || 0,
+        name: e.name || 'Episode ' + (Number(e.episode_number) || 0),
+        airDate: String(e.air_date),
+        runtime: Number(e.runtime) > 0 ? Math.round(Number(e.runtime)) : null,
       }))
+      .filter(e => e.episode > 0)
       .sort((a, b) => a.episode - b.episode);
 
     payload = { id, season, name: data.name || '', episodes };
