@@ -1250,17 +1250,27 @@ async function handleTorrents(env, cfg, url, cors) {
       }, 200, cors);
     }
 
+    // Why is the list empty?
+    //  not_found   -> at least one source answered normally, but nothing
+    //                 matched this exact title: "Nothing here yet"
+    //  unavailable -> no source answered (429 / timeout / down): a real error
+    const reason = results.length > 0 ? 'not_found' : 'unavailable';
+
     const empty = {
       query: q,
       year,
       torrents: [],
       totalResults: 0,
       provider: cfg.torrentProvider,
-      providerError: 'Torrent index temporarily unavailable (' +
+      reason,
+      // technical details, only shown in a collapsed box on the page
+      providerError: (reason === 'not_found'
+        ? 'No matching releases ('
+        : 'Torrent index temporarily unavailable (') +
         (errors.join(' | ') || 'no response') + ')',
     };
 
-    await cachePut(env, key, empty, 120);
+    await cachePut(env, key, empty, reason === 'unavailable' ? 60 : 120);
     return json(empty, 200, cors);
   }
 
