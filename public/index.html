@@ -51,6 +51,7 @@
 @keyframes oFlick{0%{opacity:.1}20%{opacity:.45}40%{opacity:.08}60%{opacity:.38}80%{opacity:.18}100%{opacity:.1}}
 @keyframes oSpark{0%,100%{opacity:0;transform:scale(.5)}50%{opacity:1;transform:scale(1.05)}}
 @media(prefers-reduced-motion:reduce){.oF,.oS,.oEye,.oTear,.oWigL,.oWigR,.oScan,.oShake,.oFlick,.oSpark,.oopsTitle{animation:none!important}.oTear{opacity:1}}
+.looseBox{margin-top:16px;border:1px dashed #6b5528;border-radius:10px;padding:8px 12px}.looseBox summary{cursor:pointer;color:#f5d88f;font-weight:bold;font-size:14px;padding:4px 0}.looseBox summary small{color:var(--muted);font-weight:normal;margin-left:6px}.looseBox>.note{margin:6px 0 4px}
 @media(max-width:600px){main{padding:10px 7px}.movies{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.mode{font-size:13px;padding:10px 3px}.typeBadge{top:4px;left:4px;font-size:8px;padding:1px 4px}.card{border-radius:7px}.info{padding:5px}.info h3{font-size:clamp(10px,3vw,13px);line-height:1.25;margin:1px 0 5px}.info p{font-size:clamp(9px,2.5vw,11px);line-height:1.3;margin:4px 0}.info .overview{display:none}.btn{font-size:clamp(9px,2.5vw,11px);padding:8px 3px;margin-top:5px;border-radius:5px}.sectionTitle{margin:15px 0 9px}.search{font-size:14px;padding:12px}header{padding:17px 8px}.brand{font-size:clamp(31px,8.3vw,48px);letter-spacing:-1.5px}.tags{gap:5px}.tags span{font-size:9px;padding:4px 6px}.detailContent,.torrentContent,.playerContent{margin:12px auto;padding:12px}.btn.torrentBtn{font-size:16px;padding:15px 10px}.searchBtn{padding:0 14px}@media(max-width:380px){.searchBtn span{display:none}}.seasonBtn{flex:1 1 calc(33.33% - 8px);min-width:0;font-size:13px}.tBtns{width:100%}.tBtns .mini{flex:1}}
 #intro{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;flex-direction:column;text-align:center;overflow:hidden;background:radial-gradient(ellipse at center,#222019 0%,#090d16 55%,#020308 100%);animation:introExit .7s ease 3.7s forwards}.intro-glow{position:absolute;width:75vw;height:75vw;max-width:600px;max-height:600px;border-radius:50%;background:#f3c76612;filter:blur(60px);animation:pulse 2s ease-in-out infinite alternate}.intro-brand{position:relative;z-index:1;font-size:clamp(35px,9vw,78px);letter-spacing:-2px;line-height:1.25}.intro-line{height:2px;width:min(280px,65vw);margin:18px auto;background:linear-gradient(90deg,transparent,#f3c766,transparent)}.intro-caption,.intro-sub{position:relative;z-index:1;color:#f5d88f;font-size:clamp(10px,2.7vw,13px);letter-spacing:3px}.intro-sub{margin-top:15px;color:#b8c0d0;font-size:11px;letter-spacing:2px}@keyframes introExit{to{opacity:0;visibility:hidden}}@keyframes pulse{from{transform:scale(.8);opacity:.5}to{transform:scale(1.15);opacity:1}}@media(prefers-reduced-motion:reduce){.brand,.intro-brand,.epItem.packItem,.epNo.packNo,.packNo svg,.epName.packName{animation:none!important}}
 </style></head>
@@ -524,9 +525,14 @@ function renderTorrents(ts,el,notice,stale){
   el=el||$('torrentList');
   const note=(notice?'<p class="src">'+esc(notice)+'</p>':'')+(stale?'<p class="src">Showing saved results — the live sources are busy right now.</p>':'');
   if(!ts.length){el.innerHTML=note+oopsHtml('notfound');return}
-  const groups=qualityGroups(ts);
-  el.innerHTML=note+'<p class="note">All available qualities, lowest to highest. Tap a quality to show only that one.</p>'+chipsHtml(groups,'all')
-    +groups.map(g=>'<div class="qGroup" data-q="'+esc(Number(g.rank)||0)+'"><h4 class="qHead">'+esc(g.label)+' <small>'+esc(g.items.length)+' release'+(g.items.length===1?'':'s')+'</small></h4>'+g.items.slice().sort(byQuality).map(t=>torrentRowHtml(t,true)).join('')+'</div>').join('');
+  // Releases whose name does not say which year the film is from are kept
+  // (the title matches exactly) but listed apart: one could be another film.
+  const sure=ts.filter(t=>!t.yearUnconfirmed),loose=ts.filter(t=>t.yearUnconfirmed);
+  const groups=qualityGroups(sure);
+  const looseHtml=loose.length?'<details class="looseBox"'+(sure.length?'':' open')+'><summary>Year not stated in the release name <small>'+loose.length+' release'+(loose.length===1?'':'s')+'</small></summary><p class="note">These releases match the title exactly, but their names do not say which year the film is from, so one of them could be a different film with the same name. Check the size and quality before downloading.</p>'+loose.slice().sort(byQuality).map(t=>torrentRowHtml(t,true)).join('')+'</details>':'';
+  el.innerHTML=note+'<p class="note">All available qualities, lowest to highest. Tap a quality to show only that one.</p>'+chipsHtml(qualityGroups(ts),'all')
+    +groups.map(g=>'<div class="qGroup" data-q="'+esc(Number(g.rank)||0)+'"><h4 class="qHead">'+esc(g.label)+' <small>'+esc(g.items.length)+' release'+(g.items.length===1?'':'s')+'</small></h4>'+g.items.slice().sort(byQuality).map(t=>torrentRowHtml(t,true)).join('')+'</div>').join('')
+    +looseHtml;
 }
 
 // ----- TV: season buttons -----
