@@ -892,11 +892,15 @@ function matchOneRelease(raw, want, opts) {
     if (!isTagToken(first)) return false;
   }
 
-  // Movies: no year right after the title -> look further, and if the year
-  // cannot be confirmed as the wanted one the release is not shown.
+  // Movies: no year right after the title -> look further.
+  //  - another year  -> a different film, not shown
+  //  - same year     -> shown
+  //  - no year at all-> 'noyear': the title matches exactly, but we cannot tell
+  //                     which film it is. The page lists these separately.
   if (opts.kind === 'movie' && opts.year) {
     const later = tokens.slice(i).find(t => YEAR_TOKEN.test(t));
-    return later !== undefined && Number(later) === opts.year;
+    if (later === undefined) return 'noyear';
+    return Number(later) === opts.year;
   }
 
   return true;
@@ -906,9 +910,21 @@ function releaseMatches(rawTitle, wantedTitle, opts) {
   const want = looseNorm(wantedTitle);
   if (!want) return true; // title in a script we cannot compare: do not block
 
+  const a = matchOneRelease(rawTitle, want, opts);
+  if (a === true) return true;
+
   const stripped = stripReleasePrefix(rawTitle);
-  return matchOneRelease(rawTitle, want, opts) ||
-    (stripped !== rawTitle && matchOneRelease(stripped, want, opts));
+  const b = stripped !== rawTitle ? matchOneRelease(stripped, want, opts) : false;
+  if (b === true) return true;
+
+  return a || b || false; // 'noyear' | false
+}
+
+// Words sent to the torrent sites: no punctuation, so "Don't Look Up",
+// "Spider-Man: No Way Home" and "Tom & Jerry" are found as the release names
+// write them ("Dont Look Up", "Spider Man No Way Home", "Tom and Jerry").
+function searchText(value) {
+  return looseNorm(value) || String(value || '').trim();
 }
 
 // ---------------- TORRENT SEARCH ----------------
@@ -936,8 +952,11 @@ function detectQuality(rawTitle, resolution, wantedTitle) {
   const has = re => re.test(t);
 
   // cinema recordings stay "CAM / TS" even when the name also says 1080p
-  if (has(/ (cam|camrip|hdcam|hd cam|ts|hdts|hd ts|telesync|tc|hdtc|telecine|scr|screener|dvdscr|predvd|pre dvd) /)) {
+  if (has(/ (cam|camrip|hdcam|hd cam|ts|hdts|hd ts|telesync|tc|hdtc|telecine|workprint|wp|predvd|pre dvd) /)) {
     return { label: 'CAM / TS', rank: 10, key: 'cam' };
+  }
+  if (has(/ (scr|screener|dvdscr|r5|r6) /)) {
+    return { label: 'Screener / R5', rank: 15, key: 'scr' };
   }
   if (has(/ (4320p|8k) /)) return { label: '8K · 4320p', rank: 100, key: '4320p' };
   if (has(/ (2160p|4k|uhd) /)) return { label: '4K · 2160p', rank: 90, key: '2160p' };
@@ -947,9 +966,14 @@ function detectQuality(rawTitle, resolution, wantedTitle) {
   if (has(/ (720p|720i) /)) return { label: '720p HD', rank: 50, key: '720p' };
   if (has(/ (576p|576i) /)) return { label: '576p', rank: 38, key: '576p' };
   if (has(/ (480p|480i) /)) return { label: '480p', rank: 30, key: '480p' };
+  if (has(/ 144p /)) return { label: '144p', rank: 18, key: '144p' };
+  if (has(/ (3gp|psp|ipod|iphone|mobile) /)) return { label: 'Mobile (tiny size)', rank: 19, key: 'mobile' };
   if (has(/ 360p /)) return { label: '360p', rank: 22, key: '360p' };
   if (has(/ 240p /)) return { label: '240p', rank: 20, key: '240p' };
-  if (has(/ (dvdrip|dvd rip|dvd|dvd5|dvd9|dvdr|xvid|divx) /)) {
+  if (has(/ (tvrip|satrip|dvbrip|vhsrip|pdtv|sdtv) /)) {
+    return { label: 'TV / SD rip', rank: 28, key: 'tvrip' };
+  }
+  if (has(/ (dvdrip|dvd rip|dvd|dvd5|dvd9|dvdr|xvid|divx|sd) /)) {
     return { label: 'DVD / SD', rank: 32, key: 'dvd' };
   }
   if (has(/ (bluray|blu ray|bdrip|brrip|bd|remux|web dl|webdl|webrip|web|hdrip|hdtv) /)) {
@@ -1149,9 +1173,10 @@ async function handleTorrents(env, cfg, url, cors) {
     : '';
 
   // "Show Name S01E03" for one episode, "Show Name S01" for season packs
+  const searchBase = searchText(q);
   const searchQuery = season
-    ? q + ' S' + pad2(season) + (episode ? 'E' + pad2(episode) : '')
-    : q;
+    ? searchBase + ' S' + pad2(season) + (episode ? 'E' + pad2(episode) : '')
+    : searchBase;
 
   if (!q) return json({ error: 'Missing query' }, 400, cors);
   if (q.length > 200) return json({ error: 'Query too long' }, 400, cors);
@@ -1172,7 +1197,9 @@ async function handleTorrents(env, cfg, url, cors) {
   const relevant = t => {
     const title = String(t.title || '');
     if (!(t.magnet || t.torrentUrl)) return false;
-    if (!releaseMatches(title, q, { kind: type, year, country })) return false;
+    const m = releaseMatches(title, q, { kind: type, year, country });
+    if (!m) return false;
+    t.yearUnconfirmed = m === 'noyear';
     if (season && !seasonEpisodeMatch(title, season, episode)) return false;
     return true;
   };
@@ -1200,22 +1227,39 @@ async function handleTorrents(env, cfg, url, cors) {
     }
 
     try {
-      const data = await withProviderRetry(env, cfg, providerName, () =>
+      const ask = yr => withProviderRetry(env, cfg, providerName, () =>
         withTimeout(
           adapter.search(cfg, searchQuery, 1, {
             type,
-            year: type === 'movie' ? year : 0,
+            year: type === 'movie' ? yr : 0,
             season,
             episode,
+            rawQuery: q, // YTS searches by the real title
           }),
           cfg.torrentTimeoutMs
         )
       );
+      const grab = d => (d && Array.isArray(d.torrents) ? d.torrents : []);
 
-      const raw = data && Array.isArray(data.torrents) ? data.torrents : [];
+      const raw = grab(await ask(year));
       if (raw.length) await clearCooldown(env, providerName);
+      let items = raw.filter(relevant);
 
-      finished.push({ idx, providerName, raw: raw.length, items: raw.filter(relevant) });
+      // Few matches with the year in the search words (releases that do not
+      // write the year, or a source that ranks other films first): ask this
+      // source once more without the year and keep whatever is new.
+      if (type === 'movie' && year && providerName !== 'yts' && items.length < 3) {
+        try {
+          const keyOf = t => String(t.infoHash || t.magnet || t.title);
+          const have = new Set(raw.map(keyOf));
+          for (const t of grab(await ask(0))) if (!have.has(keyOf(t))) raw.push(t);
+          items = raw.filter(relevant);
+        } catch {
+          // keep what the first request returned
+        }
+      }
+
+      finished.push({ idx, providerName, raw: raw.length, items });
     } catch (e) {
       errors.push(providerName + ': ' + (e.message || 'failed'));
     }
