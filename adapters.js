@@ -200,7 +200,7 @@ async function itunesSearchKind(q, kind) {
 export const torrentAdapters = {
   // ---------------- YTS (with mirror fallback) ----------------
   yts: {
-    async search(cfg, q, page = 1) {
+    async search(cfg, q, page = 1, opts = {}) {
       const bases = [...new Set(
         [cfg.ytsBase, ...(cfg.ytsMirrors || []), ...YTS_MIRRORS]
           .map(normalizeBase)
@@ -208,7 +208,7 @@ export const torrentAdapters = {
       )];
 
       const params = new URLSearchParams({
-        query_term: q,
+        query_term: opts.rawQuery || q,
         page: String(page),
         limit: '50',
         sort_by: 'seeds',
@@ -277,14 +277,20 @@ export const torrentAdapters = {
   tpb: {
     async search(cfg, q, page = 1, opts = {}) {
       const base = normalizeBase(cfg.tpbBase || 'https://apibay.org');
-      // cat 200 = all video (207 was HD movies only)
+      // cat=0 = every category. (cat=200 only matched the bare "Video" parent
+      // category and hid most movies / HD / CAM uploads.) We keep the video
+      // categories (200-299) ourselves below.
       const url = base + '/q.php?' +
-        new URLSearchParams({ q: queryWithYear(q, opts), cat: '200' }).toString();
+        new URLSearchParams({ q: queryWithYear(q, opts), cat: '0' }).toString();
 
       const data = await fetchJSON(url);
 
       const list = Array.isArray(data)
-        ? data.filter(r => r && r.info_hash && r.name && !/^no results/i.test(r.name))
+        ? data.filter(r => {
+            if (!(r && r.info_hash && r.name && !/^no results/i.test(r.name))) return false;
+            const cat = Number(r.category);
+            return !cat || (cat >= 200 && cat <= 299); // video only (movies, TV, HD, 4K, CAM...)
+          })
         : [];
 
       const torrents = [];
@@ -339,7 +345,7 @@ export const torrentAdapters = {
             order_by: 'seeders',
             order_direction: 'desc',
             from: 0,
-            size: 50,
+            size: 100,
             hide_unsafe: true,
           }),
           signal: AbortSignal.timeout(8000),
